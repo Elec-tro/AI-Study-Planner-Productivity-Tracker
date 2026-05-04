@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FocusFlow – AI Study Planner</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Scripts -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const API_URL = 'http://localhost:5000/api';
+
+        // --- Components ---
+
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} style={{width: size, height: size}} className={className}></i>;
+        };
+
+        const Sidebar = ({ activeTab, setActiveTab }) => {
+            const menuItems = [
+                { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+                { id: 'tasks', label: 'Tasks', icon: 'list-todo' },
+                { id: 'schedule', label: 'Schedule', icon: 'calendar-days' },
+                { id: 'timer', label: 'Timer', icon: 'timer' },
+                { id: 'stats', label: 'Insights', icon: 'bar-chart-3' }
+            ];
+
+            return (
+                <div className="sidebar">
+                    <div className="logo">
+                        <Icon name="zap" size={28} />
+                        FocusFlow
+                    </div>
+                    {menuItems.map(item => (
+                        <div 
+                            key={item.id} 
+                            className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+                            onClick={() => setActiveTab(item.id)}
+                        >
+                            <Icon name={item.icon} />
+                            {item.label}
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        const StatCard = ({ label, value, icon, color }) => (
+            <div className="card stat-card">
+                <div style={{ color: color, marginBottom: '0.5rem' }}>
+                    <Icon name={icon} size={24} />
+                </div>
+                <div className="stat-value">{value}</div>
+                <div className="stat-label">{label}</div>
+            </div>
+        );
+
+        const Dashboard = ({ stats, schedule }) => {
+            const today = new Date().toISOString().split('T')[0];
+            const todaysTasks = schedule.filter(s => s.date === today);
+
+            return (
+                <div className="animate-fade">
+                    <h1 style={{ marginBottom: '2rem' }}>Welcome back!</h1>
+                    
+                    <div className="stats-grid">
+                        <StatCard label="Current Streak" value={stats.current_streak + " Days"} icon="flame" color="#f59e0b" />
+                        <StatCard label="Pending Tasks" value={stats.pending_tasks} icon="clock" color="#6366f1" />
+                        <StatCard label="Tasks Completed" value={stats.completed_tasks} icon="check-circle" color="#10b981" />
+                    </div>
+
+                    <div className="dashboard-grid">
+                        <div className="card">
+                            <h2 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Icon name="calendar" /> Today's Focus
+                            </h2>
+                            {todaysTasks.length > 0 ? (
+                                todaysTasks.map(task => (
+                                    <div key={task.id} className="task-item">
+                                        <div className="task-info">
+                                            <span className="task-subject" style={{ color: task.subject_color }}>{task.task_title}</span>
+                                            <span>{task.duration_minutes} Minutes Session</span>
+                                        </div>
+                                        <Icon name="chevron-right" className="text-muted" />
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-muted">No sessions scheduled for today. Hit 'Generate' in Schedule tab!</p>
+                            )}
+                        </div>
+                        
+                        <div className="card">
+                            <h2>Quick Actions</h2>
+                            <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <button className="btn btn-primary" onClick={() => window.location.hash = '#timer'}>Start Pomodoro</button>
+                                <button className="btn btn-secondary">Review Goals</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Tasks = ({ tasks, subjects, fetchTasks }) => {
+            const [showModal, setShowModal] = useState(false);
+            const [newTask, setNewTask] = useState({ title: '', subject_id: '', deadline: '', difficulty: 3, estimated_hours: 1 });
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                await axios.post(`${API_URL}/tasks`, newTask);
+                setShowModal(false);
+                setNewTask({ title: '', subject_id: '', deadline: '', difficulty: 3, estimated_hours: 1 });
+                fetchTasks();
+            };
+
+            const toggleComplete = async (id, status) => {
+                const newStatus = status === 'completed' ? 'pending' : 'completed';
+                await axios.put(`${API_URL}/tasks/${id}`, { status: newStatus });
+                fetchTasks();
+            };
+
+            return (
+                <div className="animate-fade">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+                        <h1>Tasks</h1>
+                        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+                            <Icon name="plus" /> New Task
+                        </button>
+                    </div>
+
+                    <div className="card">
+                        {tasks.length > 0 ? tasks.map(task => (
+                            <div key={task.id} className="task-item">
+                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                    <div 
+                                        onClick={() => toggleComplete(task.id, task.status)}
+                                        style={{ cursor: 'pointer', color: task.status === 'completed' ? '#10b981' : '#94a3b8' }}
+                                    >
+                                        <Icon name={task.status === 'completed' ? "check-circle-2" : "circle"} />
+                                    </div>
+                                    <div className="task-info">
+                                        <span className="task-subject" style={{ color: task.subject_color }}>{task.subject_name}</span>
+                                        <span style={{ textDecoration: task.status === 'completed' ? 'line-through' : 'none', opacity: task.status === 'completed' ? 0.5 : 1 }}>
+                                            {task.title}
+                                        </span>
+                                        <span className="text-muted" style={{ fontSize: '0.8rem' }}>Due: {new Date(task.deadline).toLocaleDateString()}</span>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <span className="text-muted" style={{ fontSize: '0.8rem' }}>Diff: {task.difficulty}</span>
+                                </div>
+                            </div>
+                        )) : <p className="text-muted">No tasks added yet.</p>}
+                    </div>
+
+                    {showModal && (
+                        <div className="modal-overlay">
+                            <div className="modal card">
+                                <h2>Add New Task</h2>
+                                <form onSubmit={handleSubmit} style={{ marginTop: '1.5rem' }}>
+                                    <input placeholder="Task Title" required value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} />
+                                    <select required value={newTask.subject_id} onChange={e => setNewTask({...newTask, subject_id: e.target.value})}>
+                                        <option value="">Select Subject</option>
+                                        {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
+                                    <input type="date" required value={newTask.deadline} onChange={e => setNewTask({...newTask, deadline: e.target.value})} />
+                                    <div style={{ display: 'flex', gap: '1rem' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <label className="text-muted" style={{fontSize: '0.75rem'}}>Difficulty (1-5)</label>
+                                            <input type="number" min="1" max="5" value={newTask.difficulty} onChange={e => setNewTask({...newTask, difficulty: e.target.value})} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <label className="text-muted" style={{fontSize: '0.75rem'}}>Est. Hours</label>
+                                            <input type="number" step="0.5" value={newTask.estimated_hours} onChange={e => setNewTask({...newTask, estimated_hours: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                                        <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
+                                        <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Add Task</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const ScheduleView = ({ schedule, generateSchedule }) => {
+            return (
+                <div className="animate-fade">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+                        <h1>Study Schedule</h1>
+                        <button className="btn btn-primary" onClick={generateSchedule}>
+                            <Icon name="refresh-cw" /> Regenerate
+                        </button>
+                    </div>
+
+                    <div className="card">
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                            {/* Group by date */}
+                            {Array.from(new Set(schedule.map(s => s.date))).sort().map(date => (
+                                <div key={date} className="card" style={{ background: 'rgba(0,0,0,0.2)' }}>
+                                    <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>{new Date(date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
+                                    {schedule.filter(s => s.date === date).map(item => (
+                                        <div key={item.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                                            <div style={{ width: '4px', height: '24px', background: item.subject_color, borderRadius: '2px' }}></div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '0.9rem' }}>{item.task_title}</div>
+                                                <div className="text-muted" style={{ fontSize: '0.75rem' }}>{item.duration_minutes} min</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Timer = () => {
+            const [timeLeft, setTimeLeft] = useState(25 * 60);
+            const [isActive, setIsActive] = useState(false);
+            const [type, setType] = useState('work'); // work, short, long
+
+            useEffect(() => {
+                let interval = null;
+                if (isActive && timeLeft > 0) {
+                    interval = setInterval(() => {
+                        setTimeLeft(t => t - 1);
+                    }, 1000);
+                } else if (timeLeft === 0) {
+                    setIsActive(false);
+                    // Play sound or notify
+                    alert(`${type === 'work' ? 'Work' : 'Break'} session finished!`);
+                }
+                return () => clearInterval(interval);
+            }, [isActive, timeLeft]);
+
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            const resetTimer = (newTime, newType) => {
+                setTimeLeft(newTime * 60);
+                setType(newType);
+                setIsActive(false);
+            };
+
+            return (
+                <div className="animate-fade" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+                    <div className="card" style={{ width: '100%', maxWidth: '400px', textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginBottom: '1rem' }}>
+                            <button className={`btn btn-secondary ${type === 'work' ? 'active' : ''}`} onClick={() => resetTimer(25, 'work')}>Work</button>
+                            <button className={`btn btn-secondary ${type === 'short' ? 'active' : ''}`} onClick={() => resetTimer(5, 'short')}>Break</button>
+                        </div>
+                        <div className="timer-display">{formatTime(timeLeft)}</div>
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                            <button className="btn btn-primary" style={{ flex: 2 }} onClick={() => setIsActive(!isActive)}>
+                                {isActive ? 'Pause' : 'Start Focus'}
+                            </button>
+                            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => resetTimer(type === 'work' ? 25 : 5, type)}>
+                                Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Insights = ({ stats }) => {
+            const chartRef = useRef(null);
+
+            useEffect(() => {
+                if (!chartRef.current || !stats.history) return;
+                
+                const ctx = chartRef.current.getContext('2d');
+                const existingChart = Chart.getChart(ctx);
+                if (existingChart) existingChart.destroy();
+
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: stats.history.map(h => new Date(h.date).toLocaleDateString()),
+                        datasets: [
+                            {
+                                label: 'Tasks Completed',
+                                data: stats.history.map(h => h.completed),
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            },
+                            {
+                                label: 'Study Hours',
+                                data: stats.history.map(h => h.hours),
+                                borderColor: '#6366f1',
+                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { labels: { color: '#94a3b8' } }
+                        },
+                        scales: {
+                            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+                        }
+                    }
+                });
+            }, [stats]);
+
+            return (
+                <div className="animate-fade">
+                    <h1 style={{ marginBottom: '2rem' }}>Insights</h1>
+                    <div className="card">
+                        <canvas ref={chartRef}></canvas>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main App ---
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [tasks, setTasks] = useState([]);
+            const [subjects, setSubjects] = useState([]);
+            const [schedule, setSchedule] = useState([]);
+            const [stats, setStats] = useState({ current_streak: 0, pending_tasks: 0, completed_tasks: 0, history: [] });
+
+            const fetchData = async () => {
+                try {
+                    const [resTasks, resSubjects, resSchedule, resStats] = await Promise.all([
+                        axios.get(`${API_URL}/tasks`),
+                        axios.get(`${API_URL}/subjects`),
+                        axios.get(`${API_URL}/schedule`),
+                        axios.get(`${API_URL}/stats`)
+                    ]);
+                    setTasks(resTasks.data);
+                    setSubjects(resSubjects.data);
+                    setSchedule(resSchedule.data);
+                    setStats(resStats.data);
+                } catch (err) {
+                    console.error("Fetch failed", err);
+                }
+            };
+
+            const generateSchedule = async () => {
+                await axios.post(`${API_URL}/schedule/generate`, { daily_hours: 4 });
+                fetchData();
+            };
+
+            const initSubjects = async () => {
+                const res = await axios.get(`${API_URL}/subjects`);
+                if (res.data.length === 0) {
+                    await axios.post(`${API_URL}/subjects`, { name: 'Mathematics', color: '#6366f1' });
+                    await axios.post(`${API_URL}/subjects`, { name: 'Physics', color: '#10b981' });
+                    await axios.post(`${API_URL}/subjects`, { name: 'Computer Science', color: '#f59e0b' });
+                    fetchData();
+                }
+            };
+
+            useEffect(() => {
+                fetchData();
+                initSubjects();
+            }, []);
+
+            const renderContent = () => {
+                switch(activeTab) {
+                    case 'dashboard': return <Dashboard stats={stats} schedule={schedule} />;
+                    case 'tasks': return <Tasks tasks={tasks} subjects={subjects} fetchTasks={fetchData} />;
+                    case 'schedule': return <ScheduleView schedule={schedule} generateSchedule={generateSchedule} />;
+                    case 'timer': return <Timer />;
+                    case 'stats': return <Insights stats={stats} />;
+                    default: return <Dashboard stats={stats} schedule={schedule} />;
+                }
+            };
+
+            return (
+                <React.Fragment>
+                    <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+                    <div className="main-content">
+                        {renderContent()}
+                    </div>
+                </React.Fragment>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
